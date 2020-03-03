@@ -1,7 +1,12 @@
 #Run YARA against current file.  
 #
+# Thr trick to Ghidra getting the offsets correctly from Yara results is to import as a RAW file, run the script
+# and then auto-analyze the file.  If you load the file directly, Ghidra will not load the entire file but rather
+# read the sections and only load those memory regions so if you have a Yara hit outside those regions, the 
+# script will complain and it won't mark the hit properly.  This could be automated by using ghidra headless
+# and importing as RAW, run this as a pre-script, then auto-analyze as a post-script
 #Todo: Add multiple yara files
-#@author Patrick Jones
+#@author Patrick Jones (jumpeip)
 #@category Search
 #@keybinding
 #@menupath
