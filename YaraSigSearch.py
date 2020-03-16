@@ -1,15 +1,17 @@
 #Search current file with yara signatures
 #@author Patrick Jones @jumpeip
 #@category Search:YARA
+#@keybinding
+#@menupath
+#@toolbar
 
-
+# Python imports
 import sys
-sys.path.insert(0,"/Library/Python/2.7/site-packages/") # Location of site packages in your python (this is OSX)
+sys.path.insert(0,"/Library/Python/2.7/site-packages/") # in order to find some libraries, add this to the path.  This entry is for OSX
 import os, requests
 from subprocess import Popen, PIPE
 
 # Ghidra Imports
-from subprocess import Popen, PIPE
 from ghidra.program.model.listing import CodeUnit
 from ghidra.program.model.listing import Listing
 from ghidra.program.util import ProgramSelection
@@ -27,12 +29,12 @@ BUFFER_SIZE = 10*1024*1024
 SCRIPT_NAME = "YaraSigSearch.py"
 COMMENT_TYPE = CodeUnit.PRE_COMMENT
 
-def findGhidraVirtualOffset(fileOffset, key):
+def findGhidraVirtualOffset(fileOffsetFromYara, key):
     try:
-        yaraFileOffset = long(fileOffset, 16)
-        mem = currentProgram.getMemory()
-        memBlocks = mem.getBlocks()
-        for block in memBlocks:
+        yaraFileOffset = long(fileOffsetFromYara, 16)
+        memory = currentProgram.getMemory()
+        memoryBlocks = memory.getBlocks()
+        for block in memoryBlocks:
             sourceInfoList = block.getSourceInfos()
             sectionFileOffset = sourceInfoList.get(0).getFileBytesOffset()
             sizeSection = block.getSize()
@@ -93,7 +95,7 @@ def runYaraLocally():
     pYara = None
     try:
         # Place yara location in your path or in a current konwn path.  For X64 Windows, rename yara64.exe to yara.exe
-        pYara = Popen(['yara', rule_file, "-gs",file_location], stdout=PIPE, stderr=PIPE, bufsize=BUFFER_SIZE)
+        pYara = Popen(['yara', rule_file, "-s",file_location], stdout=PIPE, stderr=PIPE, bufsize=BUFFER_SIZE)
         stdout, stderr = pYara.communicate()
         print("[+] Yara scan complete")
         if pYara.returncode != 0:
