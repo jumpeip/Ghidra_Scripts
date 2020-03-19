@@ -11,9 +11,10 @@ virtual offset and places a comment in the file at the proper offset.  To find t
 window and then filter on YARA.
 
 Place this script in your ghidra_scripts directory or add it to any directory you want and then add that directory
-to the list of script locations.
+to the list of script locations.  Yara executable should be in your path.  Also, if you use a different drive other
+than C:\ then just change the script that modifies the backslashes
 
 TODO:
   1) Try and get pyYara running
   2) Add bookmarks at the same location as the comment
-  3) SOme other thing I might think of
+  3) Some other thing I might think of
