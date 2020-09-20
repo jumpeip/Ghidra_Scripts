@@ -15,3 +15,4 @@ to the list of script locations.  Yara executable should be in your path.  Also,
 than C:\ then just change the script that modifies the backslashes
 
 Highlight_JMP_CALL.py - highlights in background color all JMPs and CALLs in the disassembly
+YaraSigSearch.py - scans current program loaded in Ghidra with yara rules and then comments the hits in the disassembly
