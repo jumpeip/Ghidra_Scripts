@@ -14,5 +14,5 @@ Place this script in your ghidra_scripts directory or add it to any directory yo
 to the list of script locations.  Yara executable should be in your path.  Also, if you use a different drive other
 than C:\ then just change the script that modifies the backslashes
 
-Highlight_JMP_CALL.py - highlights in background color all JMPs and CALLs in the disassembly
+Highlight_JMP_CALL.py - highlights in background color all JMPs and CALLs in the disassembly<br>
 YaraSigSearch.py - scans current program loaded in Ghidra with yara rules and then comments the hits in the disassembly
