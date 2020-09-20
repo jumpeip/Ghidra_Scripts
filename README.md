@@ -14,7 +14,3 @@ Place this script in your ghidra_scripts directory or add it to any directory yo
 to the list of script locations.  Yara executable should be in your path.  Also, if you use a different drive other
 than C:\ then just change the script that modifies the backslashes
 
-TODO:
-  1) Try and get pyYara running
-  2) Add bookmarks at the same location as the comment
-  3) Some other thing I might think of
