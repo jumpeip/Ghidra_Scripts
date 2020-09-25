@@ -2,7 +2,7 @@
 #@author Patrick Jones @jumpeip
 #@category Instructions
 
-
+#list of imports.  I have these as standard just because I might expand on this.  Remove what you don't want/need
 from ghidra.app.plugin.core.colorizer import ColorizingService
 from ghidra.app.script import GhidraScript
 from ghidra.program.model.address import Address
@@ -23,8 +23,8 @@ CONDITIONAL_JUMP_COLOR = Color (220,151,52) # Light Brownish
 #get all memory ranges
 address_ranges = currentProgram.getMemory().getAddressRanges()
  
-for range in address_ranges:
-    instruction = currentProgram.getListing().getInstructions(range.getMinAddress(),True)
+for theRange in address_ranges:
+    instruction = currentProgram.getListing().getInstructions(theRange.getMinAddress(),True)
     for mnenomic in instruction:
        flow = mnenomic.getFlowType()
        if flow.isCall():
