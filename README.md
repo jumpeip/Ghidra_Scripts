@@ -16,3 +16,4 @@ than C:\ then just change the script that modifies the backslashes
 
 colorizy.py - highlights in background color all JMPs and CALLs in the disassembly<br>
 YaraSigSearch.py - scans current program loaded in Ghidra with yara rules and then comments the hits in the disassembly
+Find_Unique_XOR_Values.java - Looks for unique XOR values in a file.  Tried to eliminate XOR zeroing (XOR EAX,EAX and memory locations
