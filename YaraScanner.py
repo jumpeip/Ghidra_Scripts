@@ -6,162 +6,178 @@
 #YARA needs to be installed on the system and in the system's PATH.  In other words, you need to be able
 #to open a command window and type yara from anywhere in the system
 
+#This script takes one or more rules and runs yara against them and annotates the file in codebrowser with the hit.  In order to run a series of rules, create an index.yar file and import the rules you want to run
+#@category YARA
+
 import os.path
+import sys
 import distutils.spawn
 from subprocess import Popen, PIPE
 from ghidra.framework import Platform, OperatingSystem
 from org.apache.commons.io import FileUtils
+from ghidra.program.database.mem import FileBytes
+import jarray
+from docking.widgets.filechooser import GhidraFileChooser
+from docking.widgets.filechooser import GhidraFileChooserMode
+from ghidra.util.filechooser import ExtensionFileFilter
+from java.io import File
+from os.path import expanduser
 
-#Prompt the user to select the file that contains the user's YARA rule
-#This will use Ghidra's Executable Location (as seen in the Code Broswer window Edit->Options for [program] and then look at the 
-#Program Information) to identify the file location that corresonds to the program in the Code Browser.
-#If the user moved or deleted the executable file at Executable Location, then they will be prompted to locate the executable or
-#a new copy of the executable will be created from the code memory.
-
+def getYaraRulePath():
+    fileChooser = GhidraFileChooser(None);
+    fileChooser.addFileFilter(ExtensionFileFilter.forExtensions("Yara files", "yar"));
+    homeDirectory = File(expanduser("~"));
+    fileChooser.setCurrentDirectory(homeDirectory);
+    fileChooser.setFileSelectionMode(GhidraFileChooserMode.FILES_ONLY);
+    fileChooser.setApproveButtonToolTipText("Choose file for YARA scan");
+    fileChooser.setTitle("Select file that contains your YARA rules");
+    file = fileChooser.getSelectedFile();
+    if file is None:
+        sys.exit(1)
+    else:
+        return file.getPath()
+    
 def getYaraTargetOnDisk():
+    // WIndows and linux have different pathing parameters so this if statements take care of the forward and back slashes
+    
     yaraTargetPath = currentProgram.getDomainFile().getMetadata()['Executable Location']
-    if(Platform.CURRENT_PLATFORM.getOperatingSystem() == OperatingSystem.WINDOWS):
-        yaraTargetPath = currentProgram.getDomainFile().getMetadata()['Executable Location'].encode('ascii').replace('/','\\').replace("\\","",1)
-    if(not os.path.exists(yaraTargetPath)):
-        yaraTargetPath = askFile(getScriptName() + 'File not found. Select the executable file that Yara will analyze','Select executable file').getPath()
-    return yaraTargetPath
-
-def getYaraTargetFromNewLocation():
-    yaraTargetPath = askFile(getScriptName() + 'Choose the file that YARA wiLL scan','Choose file that Yara will scan','Choose File').getPath()
+    if (Platform.CURRENT_PLATFORM.getOperatingSystem() == OperatingSystem.WINDOWS):
+        yaraTargetPath = yaraTargetPath.replace('/','\\').lstrip("\\")
+    if (not os.path.exists(yaraTargetPath)):
+        yaraTargetPath = askFile(getScriptName() + ': the binary associated with the current program cannot be found '\
+            ' Select the executable file that YARA will analyze', 'Select executable file').getPath()
+    if yaraTargetPath is None:
+        sys.exit(1)
     return yaraTargetPath
 
 def getYaraTargetFromGhidra():
-    yaraTargetPath = askFile('Choose a file where Ghidra Program bytes wiLL be saved.','Choose file')
-    fBytes = currentProgram.getMemory().getAllFileBytes()
-    fileBytesList = []
-    for fb in fBytes:
-        for k in range(fb.getSize()):
-            fileBytesList.append(fb.getOriginalByte(k))
-    FileUtils.writeByteArrayToFile(yaraTargetPath, fileBytesList)
+    // This function lets the user choose a location and filename to save all bytes in the CodeBrowser in order for YARA to scan it
+    // This is the case where the original program was moved or deleted
+    
+    yaraTargetPath = askFile('Choose a location and filename where Ghidra will save the CodeBrowser bytes', 'Choose file:')
+    if yaraTargetPath is None:
+        sys.exit(1)
+    if os.path.exists(yaraTargetPath.getPath()):
+        os.remove(yaraTargetPath.getPath())
+    
+    CHUNK_SIZE = 4096
+    buf = jarray.zeros(CHUNK_SIZE,"b")
+    fBytes = currentProgram.getMemory().getAllFileBytes().get(0)
+    sizeFBytes = fBytes.getSize()
+    
+    for k in range(0, sizeFBytes + 1, CHUNK_SIZE):
+        count = fBytes.getOriginalBytes(k, buf, 0, CHUNK_SIZE)
+        if count == 0:
+            break
+        buf2 = buf[0:count]
+        FileUtils.writeByteArrayToFile(yaraTargetPath, buf2, True)
     return yaraTargetPath.getPath()
 
-#Each key in the YARA dictionary is a YARA rule name
-#The values associated with each key are the YARA file offsets
-#where nf-1s721-. r':',.-)re',-7mtS a match for that rule in this file
-
-def createYARAdictionary(stdout):
+def createYaraDictionary(stdout):
     lines = stdout.splitlines()
     if lines == None:
-        println('No YARA matches detected.')
+        println('No YARA hits')
         sys.exit(1)
     yaraDictionary = {}
     for line in lines:
-        #we have name and executable file path
         if not line.startswith('0x'):
-            listFileOffsets = []
             ruleName = line.split(' ')[0]
-            yaraDictionary[ruleName] = listFileOffsets
-        #we have tf ffset where the YARA matches in the file
+            yaraDictionary[ruleName] = []
         else:
             yaraDictionary[ruleName].append(line.split(':')[0])
     return yaraDictionary
 
-#Run YARA on the file (on disk) associated with the program in the Ghidra CodeBrowser
-#Output from YARA will be recorded via the stdout for the YARA proccess
-
-def launchYARAprocess(yaraRulePath, yaraTargetPath):
-    #find the location of the yara executable on the user's machine
-    if(Platform.CURRENT_PLATFORM.getOperatingSystem() == OperatingSystem.WINDOWS):
+def launchYaraProcess(yaraRulePath, yaraTargetPath):
+    if (Platform.CURRENT_PLATFORM.getOperatingSystem() == OperatingSystem.WINDOWS):
+        # ghidra should be running in Windows x64 so use yara64.exe
         yaraExecutablePath = distutils.spawn.find_executable("yara64.exe")
-        println("Found the executabLe in windows10!")
     else:
+        # Mac/Linux environment, so use yara
         yaraExecutablePath = distutils.spawn.find_executable("yara")
-    #if we cannot find yara, ask the user where YARA resides
-    if(yaraExecutablePath is None):
-        yaraExecutablePath = askFile(getScriptName() + ': Select the YARA executabLe File' , 'Select yara executable').getPath()
-    try:
-        yaraProcess = Popen([yaraExecutablePath,yaraRulePath,'-sw',yaraTargetPath],stdout=PIPE,stderr=PIPE,bufsize=-1)
-        stdout,stederr = yaraProcess.communicate()
-        if yaraProcess.returncode != 0:
-            println('Yara process failed with return code of %d' % yaraProcess.returnCode)
+    # Cannot find yara executable
+    if (yaraExecutablePath is None):
+        yaraExecutablePath = askFile(getScxriptName() + ': Select the YARA executable file', 'Select YARA executable').getPath()
+        if yaraExecutablePath is None:
             sys.exit(1)
+    try:
+        yaraProcess = Popen([yaraExecutablePath, yaraRulePath, '-sw', yaraTargetPath], stdout=PIPE, stderr=PIPE, bufsize=-1)
+        stdout, stderr = yaraProcess.communicate()
     except:
-        println('Failed to Launch YARA. Is YARA on your $PATH?')
-    yaraDictionary = createYARAdictionary(stdout)
+        println('Failed to launch YARA process, is YARA in your system path?')
+        sys.exit(1)
+    if yaraProcess.returncode != 0:
+        println('The YARA process failed with return code %d.  Is there an error in your YARA rule?' % yaraProcess.returncode)
+        println('YARA Process error: %s' % str(stderr))
+        sys.exit(1)
+    yaraDictionary = createYaraDictionary(stdout)
     yaraProcess.stdout.close()
     yaraProcess.stderr.close()
     return yaraDictionary
 
-
-#Start each comment that has at least one YARA match with 'YARA'
-#so users can easily filter through comments in the Ghidra Comments window
-
-def setGhidraComment(memoryAddress,fileOffset,yaraRuleName):
+def setGhidraComment(memoryAddress, fileOffset, yaraRuleName):
     myCodeUnit = currentProgram.getListing().getCodeUnitContaining(memoryAddress)
     existingComment = myCodeUnit.getComment(0)
-    #A pre-existing comment does not exist so add this YARA signature to the comment and we are done
     if not existingComment:
-        # 0 for end of line comment
-        myCodeUnit.setComment(0, 'YARA: \n' + yaraRuleName)
+        myCodeUnit.setComment(0, 'Yara: \n' + yaraRuleName)
         return
-    
-    #A comment already exists at this code unit so append our new comment to that comment
-    #Assume that we have already run this script on this file and the comments that already exist are separated by a \n
     else:
-        #store the pre-existing comments in commentList
         commentList = []
-        comments = existingComment.split('\n')
+        comments = exitingComment.split('\n')
         for comment in comments:
-            #remove YARA from the \n-separated comments
             if 'YARA' not in comment:
                 commentList.append(comment)
-        newComment = ' '
-        #if this ARA rule name is not already reported for this CodeUnit, then add it to commentList
+        newComment = ''
         if yaraRuleName not in commentList:
-            commentList.append(yaraRuleName)
+            commentlist.append(yaraRuleName)
             lengthCommentList = len(commentList)
-            if lengthCommentList==1:
+            if lengthCommentLIst == 1:
                 newComment = commentList[0]
             else:
-                #Create the comment such that each yara rule name is separated by \n
-                for k in range(lengthCommentList-1):
-                    newComment = newComment+commentList[k]+'\n'
-                #append to the last comment in the list
+                for k in range(lenghCommentList-1):
+                    newComment = newComment + commentList[k] + '\n'
                 newComment = newComment+commentList[-1]
-            myCodeUnit.setComment(0,'YARA: \n'+newComment)
-            #the comment already contains the YARA rule name so do nothing
+            myCOdeUnit.setComment(0,'YARA: \n' + newComment)
         else:
-            println('INFO: This YARA rule is already reported for this CodeUnit. '
-                    'Rule name: %s. Memory address %s. File offset %s' %
-                    (yaraRuleName,memoryAddress.toString(),fileOffset))
-        return
-    
+            println('The YARA rule is already reported for this offset. Rule name: %s, Memory address %s, File offset: %s' % (yaraRuleName, memoryAddress.toString(), hex(fileOffset)))
+            return
+        
 def main():
-    yaraRulePath = askFile(getScriptName() + ' Select a file that contains a YARA rule(s)','Select yara rule file').getPath()
-    choice = askChoice('Select the file that YARA will scan. ', 'Please choose one',[ 'Binary exists on Disk at same Location when imported into Ghidra', 
-                                                                'Binary exists on disk at a new Location.',
-                                                                'Binary does not exist on disk. Ghidra will create a new instance of the imported bytes and save them to a file.'], 'Binary exists on disk')
-    #if the binary is not located on disk, extract bytes from Ghidra and save to disk. Scan with YARA.
-    if choice.startswith('Binary does not'):
-        yaraTargetPath = getYaraTargetFromGhidra()
-    #if the user has since deleted/moved the file from where Ghidra originally analyzed the file
-    elif 'new location' in choice:
-        yaraTargetPath = getYaraTargetFromNewLocation()
-    #the program probably still exists at the same location as when the file was imported into Ghidra
-    else:
+    choiceList = []
+    choiceList.append('Binary Exists on disk')
+    choiceList.append('Ghidra will create a new instance of the imported bytes and save them to a file')
+    choice = askChoice('Select the file that YARA will scan', 'Please choose one',choiceList,choiceList[0])
+    if choice == choiceList[0]:
         yaraTargetPath = getYaraTargetOnDisk()
-        yaraDictionary = launchYARAprocess(yaraRulePath, yaraTargetPath)
+    else:
+        yaraTargetPath = getYaraTargetFromGhidra()
+    
+    yaraRulePath = getYaraRulePath()
+    yaraDictionary = launchYaraProcess(yaraRulePath, yaraTargetPath)
+    
+    if bool(yaraDictionary):
         mem = currentProgram.getMemory()
         for key in yaraDictionary:
-            if yaraDictionary[key] is not None:
-                for fileOffset in yaraDictionary[key]:
-                    myFileOffset = long(fileOffset,16)
-                    addressList = mem.locateAddressesForFileOffset(myFileOffset)
-                    if addressList.isEmpty():
-                        println('No memory address found for: ' + hex(myFileOffset))
-                    elif addressList.size() == 1:
-                        address = addressList.get(0)
-                        setGhidraComment(address,myFileOffset,key)
-                    #file offset matches multiple addresses. Let the user decide which address they want.
-                    else:
-                        println('Possible memory addresses are:')
-                        for addr in addressList:
-                            println(mem.getBlock(addr).getName() + ':' + addr.toString())
-                            println('User must decide which memory address is the correct address.')
-if __name__ == "__main__":
+            for fileOffset in yaraDictionary[key]:
+                myFileOffset = long(fileOffset,16)
+                addressList = mem.locateAddressesForFileOffset(myFileOffset)
+                if addressList.isEmpty():
+                    println('No memory address for: ' + hex(myFIleOffset))
+                elif addressList.size() == 1:
+                    address = addressList.get(0)
+                    setGhidraComment(address, myFileOffset, key)
+                else:
+                    println('WARNING: The file offset ' + hex(myFileOffset) + ' matches to the following addresses:')
+                    addressChoiceList = []
+                    for addr in addressList:
+                        println('\t' + mem.getBlock(addr).getName() + ': ' + addr.toString())
+                        addressChoiceList.append(mem.getBlock(addr).getName() + ': ' + addr.toString())
+                    addressChoice = askChoice('Select the memory address that corresponds to the file offset: ' + hex(myFileOffset), 'Please choose one', addressChoiceList, addressChoiceList[0])
+                    selectedAddress = addressChoice.split(':')
+                    addrSelected = currentProgram.getAddressFactory().getDefaultAddressSpace().getAddress(selectedAddress[-1])
+                    setGhidraComment(addrSelected, myFileOffset, key)
+    else:
+        println('No YARA hits')
+        
+if __name__ == '__main__':
     main()
+        
